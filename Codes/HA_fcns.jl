@@ -2,20 +2,36 @@ using Parameters
 using LinearAlgebra: eigen
 
 
-function stationarydistribution(T;method=:eigen,maxit=100_000)
+"""
+    Compute the stationary distribution of a Markov chain.
+
+    The transition matrix T must have columns that sum to 1.
+    Two methods are supported:
+      - :eigen (default): Uses the eigenvector associated with the eigenvalue closest to 1.
+      - :simulate: Computes the stationary distribution by iteratively multiplying T by an initial state.
+
+    Arguments:
+      T       : A square transition matrix, where each column sums to 1.
+      method  : Symbol specifying the method to use (:eigen or :simulate).
+      maxit   : Maximum number of iterations for the :simulate method (default 100_000).
+
+    Returns:
+      A normalized vector representing the stationary distribution.
+"""
+function stationarydistribution(T; method=:eigen, maxit=100_000)
     # columns of T should sum to 1
-    @assert all(abs.(sum(T,dims=1)[:].-1) .<1e-12)
-    if method==:eigen
-        f = eigen(T);
-        i = argmin(abs.(f.values .- 1));
-        D = real(f.vectors[:,i]);
-        return D / sum(D);
-    elseif method==:simulate 
-        D = zeros(size(T,1))
-        D[1] = 1.0;
+    @assert all(abs.(sum(T, dims=1)[:] .- 1) .< 1e-12) "The columns of T must sum to 1."
+    if method == :eigen
+        f = eigen(T)
+        i = argmin(abs.(f.values .- 1))
+        D = real(f.vectors[:, i])
+        return D / sum(D)
+    elseif method == :simulate 
+        D = zeros(size(T, 1))
+        D[1] = 1.0
         for it = 1:maxit
-            D = T * D;
-            if it % 100 == 0 &&  all( abs.(D - T*D) .< 1e-8)
+            D = T * D
+            if it % 100 == 0 && all(abs.(D - T * D) .< 1e-8)
                 break
             end
         end
@@ -106,26 +122,45 @@ function SolveEGM(c0,Xt,par,grid)
 end
 
 
-function maketransmat(g,grid)
-    gcapped = min.(g, grid.a[end]);
-    # Rows of M correspond to where we are going, cols correspond to where we are coming from
-    M = zeros(grid.ne*grid.na,grid.ne*grid.na)
+"""
+    maketransmat(g, grid)
+
+Constructs the transition matrix for the asset distribution based on the savings policy function.
+
+This function caps the policy function values at the maximum asset grid point and then computes transition probabilities between asset states via linear interpolation. In the resulting matrix M, rows correspond to destination asset states and columns correspond to originating asset states.
+
+# Arguments
+- g: A matrix of savings policy function values. Each column corresponds to a given exogenous state.
+- grid: A structure containing:
+    • a    : A sorted vector of asset grid points.
+    • na   : The number of asset grid points.
+    • ne   : The number of exogenous states.
+    • Πe   : A transition probability matrix (ne × ne) for the exogenous state.
+
+# Returns
+- M: A (grid.ne * grid.na) × (grid.ne * grid.na) transition matrix with each column summing to one.
+"""
+function maketransmat(g, grid)
+    gcapped = min.(g, grid.a[end])
+    # Rows of M correspond to destination asset states; columns correspond to originating asset states
+    M = zeros(grid.ne * grid.na, grid.ne * grid.na)
     for j in 1:grid.ne
-        i = lookup(grid.a,gcapped[:,j])
-        p = (gcapped[:,j] .- grid.a[i.-1]) ./ (grid.a[i] .- grid.a[i.-1]);
-        sj = (j-1)*grid.na
-        for k =1:grid.ne
-            sk = (k-1) * grid.na
-            for m = 1:grid.na
-                M[sk .+ i[m], sj+m] = p[m] * grid.Πe[j,k];
-                M[sk .+ i[m] - 1,sj+m] = (1.0 .-p[m]) * grid.Πe[j,k];
+        i = lookup(grid.a, gcapped[:, j])
+        p = (gcapped[:, j] .- grid.a[i .- 1]) ./ (grid.a[i] .- grid.a[i .- 1])
+        sj = (j - 1) * grid.na
+        for k in 1:grid.ne
+            sk = (k - 1) * grid.na
+            for m in 1:grid.na
+                M[sk + i[m], sj + m] = p[m] * grid.Πe[j, k]
+                M[sk + i[m] - 1, sj + m] = (1.0 - p[m]) * grid.Πe[j, k]
             end
         end
     end
-    @assert sum(M,dims=1)[:] ≈ ones(grid.ne*grid.na)
+    @assert sum(M, dims=1)[:] ≈ ones(grid.ne * grid.na)
     
     return M
 end
+
 
 """solvesim  -- For given path of prices (Xpath), solve backwards and simulate forwards
 """
